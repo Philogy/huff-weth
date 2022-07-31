@@ -1,0 +1,110 @@
+
+// Storage Layout
+#define constant SLOT_BALANCE_OF = FREE_STORAGE_POINTER()
+#define constant SLOT_ALLOWANCE = FREE_STORAGE_POINTER()
+#define constant SLOT_TOTAL_SUPPLY = FREE_STORAGE_POINTER()
+
+// ERC20
+// ERC20 -- events
+#define event Transfer(address indexed _from, address indexed _to, uint256 _value)
+#define event Approval(address indexed _owner, address indexed _spender, uint256 _value)
+// ERC20 -- non view
+#define function transfer(address to, uint256 amount) nonpayable returns (bool)
+#define function transferFrom(address from, address to, uint256 amount) nonpayable returns (bool)
+#define function approve(address spender, uint256 amount) nonpayable returns (bool)
+// ERC20 -- view
+#define function name() view returns (string)
+#define constant NAME = 0x496d70726f7665642057726170706564204574686572 // "Improved Wrapped Ether" (length 22)
+#define function symbol() view returns (string)
+#define constant SYMBOL = 0x57455448 // "WETH"
+#define function decimals() view returns (uint8)
+#define constant DECIMALS = 0x12 // 18
+#define function totalSupply() view returns (uint256)
+#define function balanceOf(address account) view returns (uint256)
+#define function allowance(address owner, address spender) view returns (uint256)
+
+// WETH specific
+#define function deposit() payable returns (bool)
+#define function withdraw(uint256) nonpayable returns (bool)
+
+#define macro CALC_BALANCE_OF_SLOT() = takes(1) returns(1) {
+  // takes: [account_address]
+  0x20 mstore                   // []
+  [SLOT_BALANCE_OF] 0x00 mstore // []
+  0x40 0x00 sha3                // [balanceOf_slot]
+}
+
+#define macro CALC_ALLOWANCE_SLOT() = takes(0) returns(1) {
+  [SLOT_ALLOWANCE] 0x00 mstore // []
+  0x60 0x00 sha3               // [allowance_slot]
+}
+
+#define macro ADD_BALANCE() = takes(2) returns(0) {
+  // takes: [account, amount]
+  CALC_BALANCE_OF_SLOT() // [bal_slot, amount]
+  swap1 dup2             // [bal_slot, amount, bal_slot]
+  sload add              // [bal + amount, bal_slot]
+  swap1 sstore
+}
+
+#define macro ADD_SUPPLY() = takes(1) returns(0) {
+  // takes: [supply_increase]
+  [SLOT_TOTAL_SUPPLY] sload  // [total_supply, supply_increase]
+  add                        // [new_total_supply]
+  [SLOT_TOTAL_SUPPLY] sstore // []
+}
+
+#define macro EMIT_TRANSFER() = takes(3) returns(0) {
+  // takes: [amount, from, to]
+  0x00 mstore // [from, to]
+  __EVENT_HASH(Transfer) 0x20 0x00 log3
+}
+
+#define macro RETURN_SUCCESS() = takes(0) returns(0) {
+  0x01 0x00 mstore
+  0x20 0x00 return
+}
+
+#define macro MAIN() = takes(0) returns(0) {
+  0x00 calldataload 0xE0 shr // [selector]
+  dup1 __FUNC_SIG(deposit) eq // [selector == sig(deposit), selector]
+  calldatasize iszero or deposit jumpi
+  dup1 __FUNC_SIG(balanceOf) eq balanceOf jumpi
+  dup1 __FUNC_SIG(allowance) eq allowance jumpi
+  dup1 __FUNC_SIG(totalSupply) eq totalSupply jumpi
+  dup1 __FUNC_SIG(name) eq name jumpi
+  dup1 __FUNC_SIG(symbol) eq symbol jumpi
+  __FUNC_SIG(decimals) eq decimals jumpi
+
+  deposit:
+    callvalue iszero deposit_return_early jumpi
+    deposit_return_early:
+      RETURN_SUCCESS()
+    callvalue caller ADD_BALANCE()
+    callvalue ADD_SUPPLY()
+    caller 0x00 callvalue EMIT_TRANSFER()
+    RETURN_SUCCESS()
+  balanceOf:
+    0x04 calldataload CALC_BALANCE_OF_SLOT() sload
+    0x20 0x00 return
+  allowance:
+    0x40 0x04 0x20 calldatacopy CALC_ALLOWANCE_SLOT() sload
+    0x20 0x00 return
+  totalSupply:
+    [SLOT_TOTAL_SUPPLY] sload
+    0x00 mstore
+    0x20 0x00 return
+  name:
+    [NAME] 0x36 mstore // store value
+    0x16 0x20 mstore // store length
+    0x20 0x00 mstore
+    0x60 0x00 return
+  symbol:
+    [SYMBOL] 0x24 mstore // store value
+    0x04 0x20 mstore // store length
+    0x20 0x00 mstore
+    0x60 0x00 return
+  decimals:
+    [DECIMALS] 0x00 mstore
+    0x20 0x00 return
+}
