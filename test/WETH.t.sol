@@ -29,6 +29,11 @@ contract ContractTest is Test {
         assertEq(weth.totalSupply(), BASE_SUPPLY);
         assertEq(weth.balanceOf(USER1), 0);
         assertEq(weth.allowance(USER1, USER2), 0);
+        assertEq(keccak256(abi.encodePacked(weth.symbol())), keccak256("WETH"));
+        assertEq(
+            keccak256(abi.encodePacked(weth.name())),
+            keccak256("Improved Wrapped Ether")
+        );
     }
 
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
