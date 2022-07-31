@@ -1,0 +1,35 @@
+
+#define error Error(string)
+
+#define macro REVERT_MSG() = takes (2) returns (0) {
+  // takes:                [revert_length, revert_message]
+  __ERROR(Error)        // [error_selector, revert_length, revert_message]
+  0x00 mstore           // [revert_length, revert_message]
+  0x20 0x04 mstore      // [revert_length, revert_message]
+  0x24 mstore           // [revert]
+  0x44 mstore           // []
+
+  0x64 0x00 revert
+}
+
+#define macro REQUIRE() = takes (3) returns (0) {
+  // takes:                [condition, revert_length, revert_message]
+  continue jumpi        // [revert_length, revert_message]
+  REVERT_MSG()
+  continue:
+    pop                 // []
+}
+
+#define macro SAFE_SUB() = takes(4) returns(1) {
+  // takes: [revert_length, revert_message, x, y]
+  dup4 dup4 // [x, y, revert_length, revert_message, x, y]
+  lt iszero // [x >= y, revert_length, revert_message, x, y]
+  REQUIRE() // [x, y]
+  sub       // [x-y]
+}
+
+#define macro NO_VALUE_CHECK() = takes(0) returns(0) {
+  callvalue iszero continue jumpi
+  0x00 0x00 revert
+  continue:
+}

@@ -1,8 +1,7 @@
+#include "./Utils.huff"
 
 // Storage Layout
-#define constant SLOT_BALANCE_OF = FREE_STORAGE_POINTER()
-#define constant SLOT_ALLOWANCE = FREE_STORAGE_POINTER()
-#define constant SLOT_TOTAL_SUPPLY = FREE_STORAGE_POINTER()
+#define constant SLOT_TOTAL_SUPPLY = 0x01
 
 // ERC20
 // ERC20 -- events
@@ -27,35 +26,59 @@
 #define function deposit() payable returns (bool)
 #define function withdraw(uint256) nonpayable returns (bool)
 
+// "WETH: Zero address"
+#define constant ZERO_ADDRESS_ERROR = 0x574554483a205a65726f20616464726573730000000000000000000000000000
+#define macro ZERO_ADDR_CHECK() = takes(1) returns(0) {
+  // takes:                    [addr]
+  0x12 [ZERO_ADDRESS_ERROR] // [z_addr_error, 18, addr]
+  swap2                     // [addr, 18, z_addr_error]
+  REQUIRE()
+}
+
 #define macro CALC_BALANCE_OF_SLOT() = takes(1) returns(1) {
   // takes: [account_address]
-  0x20 mstore                   // []
-  [SLOT_BALANCE_OF] 0x00 mstore // []
-  0x40 0x00 sha3                // [balanceOf_slot]
+  0x00 mstore                   // []
+  0x20 0x00 sha3                // [balanceOf_slot]
 }
 
 #define macro CALC_ALLOWANCE_SLOT() = takes(0) returns(1) {
-  [SLOT_ALLOWANCE] 0x00 mstore // []
-  0x60 0x00 sha3               // [allowance_slot]
+  0x40 0x00 sha3               // [allowance_slot]
 }
 
-#define macro ADD_BALANCE() = takes(2) returns(0) {
-  // takes: [account, amount]
+#define macro INCREASE_BALANCE() = takes(2) returns(0) {
+  // takes:                 [account, amount]
   CALC_BALANCE_OF_SLOT() // [bal_slot, amount]
   swap1 dup2             // [bal_slot, amount, bal_slot]
   sload add              // [bal + amount, bal_slot]
   swap1 sstore
 }
 
-#define macro ADD_SUPPLY() = takes(1) returns(0) {
-  // takes: [supply_increase]
+// "WETH: Insufficient balance"
+#define constant BALANCE_ERROR = 0x574554483a20496e73756666696369656e742062616c616e6365000000000000
+#define macro DECREASE_BALANCE() = takes(2) returns(0) {
+  // takes:                          [account, amount]
+  CALC_BALANCE_OF_SLOT()          // [bal_slot, amount]
+  swap1 dup2 sload                // [bal, amount, bal_slot]
+  [BALANCE_ERROR] 0x1a SAFE_SUB() // [bal - amount, bal_slot]
+  swap1 sstore
+}
+
+#define macro INCREASE_SUPPLY() = takes(1) returns(0) {
+  // takes:                     [supply_increase]
   [SLOT_TOTAL_SUPPLY] sload  // [total_supply, supply_increase]
   add                        // [new_total_supply]
-  [SLOT_TOTAL_SUPPLY] sstore // []
+  [SLOT_TOTAL_SUPPLY] sstore
+}
+
+#define macro DECREASE_SUPPLY() = takes(1) returns(0) {
+  // takes:                     [supply_increase]
+  [SLOT_TOTAL_SUPPLY] sload  // [total_supply, supply_increase]
+  sub                        // [new_total_supply]
+  [SLOT_TOTAL_SUPPLY] sstore
 }
 
 #define macro EMIT_TRANSFER() = takes(3) returns(0) {
-  // takes: [amount, from, to]
+  // takes:      [amount, from, to]
   0x00 mstore // [from, to]
   __EVENT_HASH(Transfer) 0x20 0x00 log3
 }
@@ -65,10 +88,101 @@
   0x20 0x00 return
 }
 
+#define macro DEPOSIT() = takes(0) returns(0) {
+  // takes:                                  [amount, recipient]
+  callvalue iszero deposit_skip jumpi     // [amount, recipient]
+  callvalue caller INCREASE_BALANCE()   // [amount, recipient]
+  callvalue INCREASE_SUPPLY()           // [amount, recipient]
+  caller 0x00 callvalue EMIT_TRANSFER() // []
+  deposit_skip:
+  RETURN_SUCCESS()
+}
+
+#define macro WITHDRAW() = takes(0) returns(0) {
+  NO_VALUE_CHECK()
+  0x04 calldataload                     // [amount]
+  dup1 caller DECREASE_BALANCE()        // [amount]
+  dup1 DECREASE_SUPPLY()                // [amount]
+  caller 0x0 dup3                       // [amount, msg.sender, 0x0, amount]
+  EMIT_TRANSFER()                       // [amount]
+  0x0 0x0 0x0 0x0 swap4 caller gas call // []
+  RETURN_SUCCESS()
+}
+
+#define macro DO_TRANSFER() = takes(3) returns(0) {
+  // takes:                 [from, to, amount]
+  dup2 ZERO_ADDR_CHECK() // [to, amount]
+  dup2 dup2 dup5         // [amount, from, to, from, to, amount]
+  EMIT_TRANSFER()        // [from, to, amount]
+  dup3 swap1             // [from, amount, to, amount]
+  DECREASE_BALANCE()     // [to, amount]
+  INCREASE_BALANCE()     // []
+  RETURN_SUCCESS()
+}
+
+#define constant ALLOWANCE_ERROR = 0x574554483a20496e73756666696369656e7420416c6c6f77616e636500000000
+#define constant MAX_ALLOWANCE = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+#define macro TRANSFER_FROM() = takes(0) returns (0) {
+  NO_VALUE_CHECK()
+
+  // check allowance
+  0x04 calldatacopy dup1  // [from, from]
+  0x00 mstore             // [from]
+  caller 0x20 mstore      // [from]
+  CALC_ALLOWANCE_SLOT()   // [allowance_slot, from]
+  0x44 calldataload       // [amount, amount, allowance_slot, from]
+  dup3 sload              // [allowance, amount, amount, allowance_slot, from]
+  dup1 [MAX_ALLOWANCE] eq skip_allowance_update jumpi
+  [ALLOWANCE_ERROR] 0x1c  // [28, allowance_error, allowance, amount, amount, allowance_slot, from]
+  SAFE_SUB()              // [allowance - amount, amount, allowance_slot, from]
+  // update allowance and emit event
+  dup1 swap3 sstore       // [amount, allowance - amount, from]
+  swap1 0x00 mstore       // [amount, from]
+  caller dup3             // [from, msg.sender, amount, from]
+  __EVENT_HASH(Approval)  // [sig(Approval), from, msg.sender, amount, from]
+  0x20 0x00 log3          // [amount, from]
+  dup1                    // [amount, amount, from]
+
+  skip_allowance_update:
+    pop swap2 pop         // [amount, amount, from]
+
+  // transfer balance
+  dup3 DECREASE_BALANCE() // [amount, from]
+  0x24 calldataload dup2  // [amount, to, amount, from]
+  dup2 INCREASE_BALANCE() // [to, amount, from]
+  swap2 swap1             // [amount, from, to]
+  EMIT_TRANSFER()
+
+  RETURN_SUCCESS()
+}
+
+#define macro APPROVE() = takes(0) returns(0) {
+  NO_VALUE_CHECK()
+
+  0x24 calldataload      // [allowance]
+  0x04 calldataload dup1 // [spender, spender, allowance]
+
+  0x20 mstore            // [spender, allowance]
+  caller 0x00 mstore     // [spender, allowance]
+  dup2                   // [allowance, spender, allowance]
+  CALC_ALLOWANCE_SLOT()  // [allowance_slot, allowance, spender, allowance]
+  sstore                 // [spender, allowance]
+  dup1 0x00 mstore       // [spender]
+  caller                 // [msg.sender, spender]
+  __EVENT_HASH(Approval) // [sig(Approval), msg.sender, spender]
+  0x20 0x00 log3         // []
+
+  RETURN_SUCCESS()
+}
+
 #define macro MAIN() = takes(0) returns(0) {
   0x00 calldataload 0xE0 shr // [selector]
   dup1 __FUNC_SIG(deposit) eq // [selector == sig(deposit), selector]
   calldatasize iszero or deposit jumpi
+  dup1 __FUNC_SIG(withdraw) eq withdraw jumpi
+  dup1 __FUNC_SIG(transfer) eq transfer jumpi
+  dup1 __FUNC_SIG(transferFrom) eq transferFrom jumpi
+  dup1 __FUNC_SIG(approve) eq approve jumpi
   dup1 __FUNC_SIG(balanceOf) eq balanceOf jumpi
   dup1 __FUNC_SIG(allowance) eq allowance jumpi
   dup1 __FUNC_SIG(totalSupply) eq totalSupply jumpi
@@ -77,34 +191,48 @@
   __FUNC_SIG(decimals) eq decimals jumpi
 
   deposit:
-    callvalue iszero deposit_return_early jumpi
-    deposit_return_early:
-      RETURN_SUCCESS()
-    callvalue caller ADD_BALANCE()
-    callvalue ADD_SUPPLY()
-    caller 0x00 callvalue EMIT_TRANSFER()
-    RETURN_SUCCESS()
+    DEPOSIT()
+  withdraw:
+    WITHDRAW()
+  transfer:
+    NO_VALUE_CHECK()
+    calldatacopy 0x24 // [amount]
+    calldatacopy 0x04 // [to, amount]
+    caller DO_TRANSFER()
+  transferFrom:
+    TRANSFER_FROM()
+  approve:
+    APPROVE()
   balanceOf:
-    0x04 calldataload CALC_BALANCE_OF_SLOT() sload
+    NO_VALUE_CHECK()
+    0x04 calldataload            // [addr]
+    CALC_BALANCE_OF_SLOT() sload // [bal]
+    0x00 mstore
     0x20 0x00 return
   allowance:
-    0x40 0x04 0x20 calldatacopy CALC_ALLOWANCE_SLOT() sload
+    NO_VALUE_CHECK()
+    0x40 0x04 0x00 calldatacopy CALC_ALLOWANCE_SLOT() sload
+    0x00 mstore
     0x20 0x00 return
   totalSupply:
+    NO_VALUE_CHECK()
     [SLOT_TOTAL_SUPPLY] sload
     0x00 mstore
     0x20 0x00 return
   name:
+    NO_VALUE_CHECK()
     [NAME] 0x36 mstore // store value
     0x16 0x20 mstore // store length
     0x20 0x00 mstore
     0x60 0x00 return
   symbol:
+    NO_VALUE_CHECK()
     [SYMBOL] 0x24 mstore // store value
     0x04 0x20 mstore // store length
     0x20 0x00 mstore
     0x60 0x00 return
   decimals:
+    NO_VALUE_CHECK()
     [DECIMALS] 0x00 mstore
     0x20 0x00 return
 }
