@@ -17,7 +17,7 @@
   continue jumpi        // [revert_length, revert_message]
   REVERT_MSG()
   continue:
-    pop                 // []
+    pop pop               // []
 }
 
 #define macro SAFE_SUB() = takes(4) returns(1) {
