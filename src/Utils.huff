@@ -14,9 +14,9 @@
 
 #define macro REQUIRE() = takes (3) returns (0) {
   // takes:                [condition, revert_length, revert_message]
-  continue jumpi        // [revert_length, revert_message]
+  continue_require jumpi        // [revert_length, revert_message]
   REVERT_MSG()
-  continue:
+  continue_require:
     pop pop               // []
 }
 
@@ -29,7 +29,7 @@
 }
 
 #define macro NO_VALUE_CHECK() = takes(0) returns(0) {
-  callvalue iszero continue jumpi
+  callvalue iszero continue_after_value_check jumpi
   0x00 0x00 revert
-  continue:
+  continue_after_value_check:
 }

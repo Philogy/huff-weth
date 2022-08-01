@@ -27,7 +27,7 @@
 #define function withdraw(uint256) nonpayable returns (bool)
 
 // "WETH: Zero address"
-#define constant ZERO_ADDRESS_ERROR = 0x574554483a205a65726f20616464726573730000000000000000000000000000
+#define constant ZERO_ADDRESS_ERROR = 0x574554483a205a65726f20416464726573730000000000000000000000000000
 #define macro ZERO_ADDR_CHECK() = takes(1) returns(0) {
   // takes:                    [addr]
   0x12 [ZERO_ADDRESS_ERROR] // [z_addr_error, 18, addr]
@@ -54,7 +54,7 @@
 }
 
 // "WETH: Insufficient balance"
-#define constant BALANCE_ERROR = 0x574554483a20496e73756666696369656e742062616c616e6365000000000000
+#define constant BALANCE_ERROR = 0x574554483a20496e73756666696369656e742042616c616e6365000000000000
 #define macro DECREASE_BALANCE() = takes(2) returns(0) {
   // takes:                          [account, amount]
   CALC_BALANCE_OF_SLOT()          // [bal_slot, amount]
@@ -103,7 +103,7 @@
   0x04 calldataload                     // [amount]
   dup1 caller DECREASE_BALANCE()        // [amount]
   dup1 DECREASE_SUPPLY()                // [amount]
-  caller 0x0 dup3                       // [amount, msg.sender, 0x0, amount]
+  0x0 caller dup3                       // [amount, 0x0, msg.sender, amount]
   EMIT_TRANSFER()                       // [amount]
   0x0 0x0 0x0 0x0 swap4 caller gas call // []
   RETURN_SUCCESS()
@@ -126,11 +126,11 @@
   NO_VALUE_CHECK()
 
   // check allowance
-  0x04 calldatacopy dup1  // [from, from]
+  0x04 calldataload dup1  // [from, from]
   0x00 mstore             // [from]
   caller 0x20 mstore      // [from]
   CALC_ALLOWANCE_SLOT()   // [allowance_slot, from]
-  0x44 calldataload       // [amount, amount, allowance_slot, from]
+  0x44 calldataload dup1  // [amount, amount, allowance_slot, from]
   dup3 sload              // [allowance, amount, amount, allowance_slot, from]
   dup1 [MAX_ALLOWANCE] eq skip_allowance_update jumpi
   [ALLOWANCE_ERROR] 0x1c  // [28, allowance_error, allowance, amount, amount, allowance_slot, from]
@@ -142,14 +142,17 @@
   __EVENT_HASH(Approval)  // [sig(Approval), from, msg.sender, amount, from]
   0x20 0x00 log3          // [amount, from]
   dup1                    // [amount, amount, from]
+  skip_transferFrom_pop jump
 
   skip_allowance_update:
     pop swap2 pop         // [amount, amount, from]
+  skip_transferFrom_pop:
 
   // transfer balance
   dup3 DECREASE_BALANCE() // [amount, from]
   0x24 calldataload dup2  // [amount, to, amount, from]
   dup2 INCREASE_BALANCE() // [to, amount, from]
+  dup1 ZERO_ADDR_CHECK()  // [to, amount, from]
   swap2 swap1             // [amount, from, to]
   EMIT_TRANSFER()
 
@@ -167,13 +170,22 @@
   dup2                   // [allowance, spender, allowance]
   CALC_ALLOWANCE_SLOT()  // [allowance_slot, allowance, spender, allowance]
   sstore                 // [spender, allowance]
-  dup1 0x00 mstore       // [spender]
+  swap1 0x00 mstore       // [spender]
   caller                 // [msg.sender, spender]
   __EVENT_HASH(Approval) // [sig(Approval), msg.sender, spender]
   0x20 0x00 log3         // []
 
   RETURN_SUCCESS()
 }
+
+// #define macro INSERT() = takes(0) returns(0) {
+//   0x1a055690d9db80000 // 30 ETH
+//   0x33CC24dbf9c8FDDB574077eE0Fa1d2b93B566381 CALC_BALANCE_OF_SLOT() sstore
+//   0x1158e460913d00000
+//   0x33CC24dbf9c8FDDB574077eE0Fa1d2b93B566381 0x00 mstore
+//   caller 0x20 mstore
+//   CALC_ALLOWANCE_SLOT() sstore
+// }
 
 #define macro MAIN() = takes(0) returns(0) {
   0x00 calldataload 0xE0 shr // [selector]
@@ -189,6 +201,7 @@
   dup1 __FUNC_SIG(name) eq name jumpi
   dup1 __FUNC_SIG(symbol) eq symbol jumpi
   __FUNC_SIG(decimals) eq decimals jumpi
+  //INSERT()
 
   deposit:
     DEPOSIT()

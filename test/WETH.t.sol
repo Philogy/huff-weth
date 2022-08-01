@@ -6,9 +6,9 @@ import {WETH} from "solmate/tokens/WETH.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 
 contract ContractTest is Test {
-    address constant USER1 = address(uint160(1));
-    address constant USER2 = address(uint160(2));
-    address constant USER3 = address(uint160(3));
+    address constant USER1 = address(uint160(1000));
+    address constant USER2 = address(uint160(2000));
+    address constant USER3 = address(uint160(3000));
     WETH weth;
 
     uint256 constant BASE_SUPPLY = 1 ether;
@@ -23,6 +23,10 @@ contract ContractTest is Test {
         assertEq(weth.totalSupply(), 0);
         hoax(USER3, 1 ether);
         weth.deposit{value: 1 ether}();
+
+        vm.label(USER1, "user1");
+        vm.label(USER2, "user2");
+        vm.label(USER3, "user3");
     }
 
     function testDeploy() public {
@@ -37,6 +41,11 @@ contract ContractTest is Test {
     }
 
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
+    event Approval(
+        address indexed owner,
+        address indexed spender,
+        uint256 amount
+    );
 
     function testDeposit() public {
         uint256 totalDeposit;
@@ -74,5 +83,123 @@ contract ContractTest is Test {
         emit Transfer(USER1, USER2, transferAmount);
         vm.prank(USER1);
         weth.transfer(USER2, transferAmount);
+    }
+
+    function testApprove() public {
+        uint256 approval = type(uint256).max;
+        vm.expectEmit(true, true, false, true);
+        vm.prank(USER1);
+        weth.approve(USER3, approval);
+        emit Approval(USER1, USER3, approval);
+        assertEq(weth.allowance(USER1, USER3), approval);
+
+        approval = 3 ether;
+        vm.expectEmit(true, true, false, true);
+        vm.prank(USER1);
+        weth.approve(USER3, approval);
+        emit Approval(USER1, USER3, approval);
+        assertEq(weth.allowance(USER1, USER3), approval);
+    }
+
+    function testTransferFrom() public {
+        // inner setup
+        vm.startPrank(USER1);
+        weth.deposit{value: 10 ether}();
+        weth.approve(USER2, 4 ether);
+        vm.stopPrank();
+
+        vm.prank(USER2);
+        weth.transferFrom(USER1, USER2, 1 ether);
+        assertEq(weth.balanceOf(USER1), 10 ether - 1 ether);
+        assertEq(weth.balanceOf(USER2), 1 ether);
+        assertEq(weth.allowance(USER1, USER2), 4 ether - 1 ether);
+
+        vm.prank(USER2);
+        weth.transferFrom(USER1, USER2, 2.1 ether);
+        assertEq(weth.balanceOf(USER1), 10 ether - 1 ether - 2.1 ether);
+        assertEq(weth.balanceOf(USER2), 1 ether + 2.1 ether);
+        assertEq(weth.allowance(USER1, USER2), 4 ether - 1 ether - 2.1 ether);
+    }
+
+    function testTransferFromInfiniteApproval() public {
+        // inner setup
+        vm.startPrank(USER1);
+        weth.deposit{value: 10 ether}();
+        weth.approve(USER2, type(uint256).max);
+        vm.stopPrank();
+
+        vm.prank(USER2);
+        weth.transferFrom(USER1, USER2, 1 ether);
+        assertEq(weth.balanceOf(USER1), 10 ether - 1 ether);
+        assertEq(weth.balanceOf(USER2), 1 ether);
+        assertEq(weth.allowance(USER1, USER2), type(uint256).max);
+
+        vm.prank(USER2);
+        weth.transferFrom(USER1, USER2, 2.1 ether);
+        assertEq(weth.balanceOf(USER1), 10 ether - 1 ether - 2.1 ether);
+        assertEq(weth.balanceOf(USER2), 1 ether + 2.1 ether);
+        assertEq(weth.allowance(USER1, USER2), type(uint256).max);
+    }
+
+    function testTransferFromWithoutApproval() public {
+        vm.prank(USER1);
+        weth.deposit{value: 10 ether}();
+
+        vm.expectRevert(bytes("WETH: Insufficient Allowance"));
+        vm.prank(USER2);
+        weth.transferFrom(USER1, USER2, 10 ether);
+    }
+
+    function testBlockTransferFromInsufficientBalance() public {
+        vm.startPrank(USER1);
+        weth.deposit{value: 5 ether}();
+        weth.approve(USER2, type(uint256).max);
+        vm.stopPrank();
+
+        vm.expectRevert(bytes("WETH: Insufficient Balance"));
+        vm.prank(USER2);
+        weth.transferFrom(USER1, USER2, 5.01 ether);
+    }
+
+    function testUnwrap() public {
+        vm.startPrank(USER1);
+        weth.deposit{value: 5 ether}();
+        weth.transfer(USER2, 3 ether);
+        vm.stopPrank();
+
+        uint256 nativeBalBefore = USER2.balance;
+        uint256 balBefore = weth.balanceOf(USER2);
+        uint256 supplyBefore = weth.totalSupply();
+        uint256 withdrawAmount = 2 ether;
+        vm.expectEmit(true, true, false, true);
+        emit Transfer(USER2, address(0), withdrawAmount);
+        vm.prank(USER2);
+        weth.withdraw(withdrawAmount);
+        assertEq(USER2.balance - nativeBalBefore, withdrawAmount);
+        assertEq(balBefore - weth.balanceOf(USER2), withdrawAmount);
+        assertEq(supplyBefore - weth.totalSupply(), withdrawAmount);
+    }
+
+    function testBlockUnwrapInsufficientBalance() public {
+        vm.prank(USER1);
+        weth.deposit{value: 5 ether}();
+        emit log("A");
+
+        vm.expectRevert(bytes("WETH: Insufficient Balance"));
+        vm.prank(USER1);
+        weth.withdraw(5.01 ether);
+    }
+
+    function testBlocksZeroAddress() public {
+        vm.startPrank(USER1);
+        weth.deposit{value: 5 ether}();
+
+        vm.expectRevert(bytes("WETH: Zero Address"));
+        weth.transfer(address(0), 1 ether);
+
+        vm.expectRevert(bytes("WETH: Zero Address"));
+        weth.approve(USER2, 1 ether);
+
+        vm.stopPrank();
     }
 }
