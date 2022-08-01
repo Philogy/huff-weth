@@ -100,12 +100,13 @@
 
 #define macro WITHDRAW() = takes(0) returns(0) {
   NO_VALUE_CHECK()
-  0x04 calldataload                     // [amount]
-  dup1 caller DECREASE_BALANCE()        // [amount]
-  dup1 DECREASE_SUPPLY()                // [amount]
-  0x0 caller dup3                       // [amount, 0x0, msg.sender, amount]
-  EMIT_TRANSFER()                       // [amount]
-  0x0 0x0 0x0 0x0 swap4 caller gas call // []
+  0x04 calldataload               // [amount]
+  dup1 caller DECREASE_BALANCE()  // [amount]
+  dup1 DECREASE_SUPPLY()          // [amount]
+  0x0 dup1 caller dup4            // [amount, msg.sender, 0, 0, amount]
+  EMIT_TRANSFER()                 // [0, amount]
+  dup1 dup1 dup1 swap4 caller gas // [gas, msg.sender, amount, 0, 0, 0, 0]
+  call
   RETURN_SUCCESS()
 }
 
@@ -212,7 +213,8 @@
     NO_VALUE_CHECK()
     0x24 calldataload // [amount]
     0x04 calldataload // [to, amount]
-    caller DO_TRANSFER()
+    caller            // [msg.sender, to, amount]
+    DO_TRANSFER()
   transferFrom:
     TRANSFER_FROM()
   approve:
