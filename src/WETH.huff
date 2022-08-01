@@ -164,13 +164,14 @@
 
   0x24 calldataload      // [allowance]
   0x04 calldataload dup1 // [spender, spender, allowance]
+  dup1 ZERO_ADDR_CHECK() // [spender, spender, allowance]
 
   0x20 mstore            // [spender, allowance]
   caller 0x00 mstore     // [spender, allowance]
   dup2                   // [allowance, spender, allowance]
   CALC_ALLOWANCE_SLOT()  // [allowance_slot, allowance, spender, allowance]
   sstore                 // [spender, allowance]
-  swap1 0x00 mstore       // [spender]
+  swap1 0x00 mstore      // [spender]
   caller                 // [msg.sender, spender]
   __EVENT_HASH(Approval) // [sig(Approval), msg.sender, spender]
   0x20 0x00 log3         // []

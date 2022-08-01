@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 
-contract ContractTest is Test {
+contract WETHTest is Test {
     address constant USER1 = address(uint160(1000));
     address constant USER2 = address(uint160(2000));
     address constant USER3 = address(uint160(3000));
@@ -161,7 +161,7 @@ contract ContractTest is Test {
         weth.transferFrom(USER1, USER2, 5.01 ether);
     }
 
-    function testUnwrap() public {
+    function testWithdraw() public {
         vm.startPrank(USER1);
         weth.deposit{value: 5 ether}();
         weth.transfer(USER2, 3 ether);
@@ -198,8 +198,14 @@ contract ContractTest is Test {
         weth.transfer(address(0), 1 ether);
 
         vm.expectRevert(bytes("WETH: Zero Address"));
-        weth.approve(USER2, 1 ether);
+        weth.approve(address(0), 1 ether);
+
+        weth.approve(USER2, 3 ether);
 
         vm.stopPrank();
+
+        vm.prank(USER2);
+        vm.expectRevert(bytes("WETH: Zero Address"));
+        weth.transferFrom(USER1, address(0), 1 ether);
     }
 }
