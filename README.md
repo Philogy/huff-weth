@@ -1,7 +1,7 @@
 # (Simple) Huff WETH
 
-**Notice:** This implementation is _outdated_, to see much more heavily optimized version of Wrapped
-Ether written in Huff see the [newer METH project](https://github.com/philogy/meth-weth).
+**Notice:** This implementation is _outdated_, to see a much more heavily optimized version of Wrapped
+Ether written in Huff check out [METH](https://github.com/philogy/meth-weth).
 
 This project was made for the purpose of learning the new EVM language [Huff](https://huff.sh/).
 I've rewritten the basic functionality of the classic Wrapped Ether contract aka
